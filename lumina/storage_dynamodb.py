@@ -230,24 +230,46 @@ class StorageDynamoDB:
         """List photos, optionally filtered by user IDs."""
         try:
             if user_ids is None:
-                # Scan all photos (for 'all' scope)
-                response = self.photos_table.scan()
+                # Scan all photos with SK='META' (for 'all' scope)
+                response = self.photos_table.scan(
+                    FilterExpression=Attr('SK').eq('META')
+                )
                 items = response.get('Items', [])
+                
+                # Handle pagination if there are more items
+                while 'LastEvaluatedKey' in response:
+                    response = self.photos_table.scan(
+                        FilterExpression=Attr('SK').eq('META'),
+                        ExclusiveStartKey=response['LastEvaluatedKey']
+                    )
+                    items.extend(response.get('Items', []))
             else:
-                # Query photos for specific users
+                # Query photos for specific users using PK pattern
                 items = []
                 for uid in user_ids:
                     response = self.photos_table.query(
-                        IndexName='user_id-index',
-                        KeyConditionExpression=Key('user_id').eq(uid)
+                        KeyConditionExpression=Key('PK').eq(f'USER#{uid}') & Key('SK').begins_with('PHOTO#')
                     )
-                    items.extend(response.get('Items', []))
+                    user_photos = response.get('Items', [])
+                    
+                    # For each user's photo index entry, fetch the actual photo metadata
+                    for user_photo in user_photos:
+                        photo_id = user_photo.get('photo_id')
+                        if photo_id:
+                            photo_response = self.photos_table.get_item(Key={
+                                'PK': f'PHOTO#{photo_id}',
+                                'SK': 'META'
+                            })
+                            photo_item = photo_response.get('Item')
+                            if photo_item:
+                                items.append(photo_item)
             
             # Convert Decimal to int and sort by timestamp
             photos = [self._deserialize_photo(item) for item in items]
             photos.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
             return photos
-        except ClientError:
+        except ClientError as e:
+            print(f"Error listing photos: {e}")
             return []
 
     def add_photo(self, user: Dict[str, Any], topic: str, image: Image.Image, caption: str = "") -> Dict[str, Any]:
