@@ -1,0 +1,42 @@
+# Ignore Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# Environment variables
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Uploaded files (keep structure but not content)
+static/uploads/full/*.jpg
+static/uploads/full/*.jpeg
+static/uploads/full/*.png
+static/uploads/thumbs/*.jpg
+static/uploads/thumbs/*.jpeg
+static/uploads/thumbs/*.png
+
+# Data files
+data/*.json
+
+# Logs
+*.log
+
+# Docker
+.dockerignore

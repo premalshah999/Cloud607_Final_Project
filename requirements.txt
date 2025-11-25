@@ -1,0 +1,12 @@
+# Core Flask dependencies
+Flask>=2.2
+Pillow>=9.0
+PyMySQL>=1.1
+cryptography>=41.0
+gunicorn>=21.0
+
+# MongoDB storage backend
+pymongo>=4.8
+
+# AWS DynamoDB storage backend (optional - for AWS deployment)
+boto3>=1.34

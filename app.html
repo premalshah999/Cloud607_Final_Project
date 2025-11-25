@@ -1,0 +1,1123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lumina | Visual Discovery</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#eff6ff',
+                            100: '#dbeafe',
+                            500: '#3b82f6',
+                            600: '#2563eb',
+                            900: '#1e3a8a',
+                        }
+                    },
+                    boxShadow: {
+                        'soft': '0 4px 20px -2px rgba(0, 0, 0, 0.05)',
+                        'glow': '0 0 15px rgba(59, 130, 246, 0.5)',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        
+        .appearance-none {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.4s ease-out forwards;
+        }
+
+        @keyframes likeBounce {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+        .animate-like {
+            animation: likeBounce 0.3s ease-in-out;
+        }
+    </style>
+
+    <script type="module">
+        const API_BASE = '/api';
+
+        let photos = [];
+        let topics = new Set();
+        let activeFilter = 'All';
+        let searchQuery = '';
+        let currentUser = null;
+        let authMode = 'login';
+        let feedScope = 'home'; // 'home' or 'profile'
+        let currentComments = [];
+        let currentPhotoId = null;
+        let chatUserId = null;
+        let chatUsername = '';
+        let chatMessages = [];
+        let chatPoll = null;
+
+        const uploadModal = document.getElementById('uploadModal');
+        const loginModal = document.getElementById('loginModal');
+        const viewModal = document.getElementById('viewModal');
+        const galleryGrid = document.getElementById('galleryGrid');
+        const topicFilterContainer = document.getElementById('topicFilterContainer');
+        const topicSelect = document.getElementById('topicSelect');
+        const newTopicInput = document.getElementById('newTopicInput');
+        const fileInput = document.getElementById('fileInput');
+        const filePreview = document.getElementById('filePreview');
+        const uploadForm = document.getElementById('uploadForm');
+        const searchInput = document.getElementById('searchInput');
+        const navAuthSection = document.getElementById('navAuthSection');
+        const loginForm = document.getElementById('loginForm');
+        const loginNameInput = document.getElementById('loginNameInput');
+        const loginPasswordInput = document.getElementById('loginPasswordInput');
+        const authToggleBtn = document.getElementById('authToggleBtn');
+        const authSubmitBtn = document.getElementById('authSubmitBtn');
+        const friendModal = document.getElementById('friendModal');
+        const friendRequestsList = document.getElementById('friendRequestsList');
+        const friendSendInput = document.getElementById('friendSendInput');
+        const feedHomeBtn = document.getElementById('feedHomeBtn');
+        const feedProfileBtn = document.getElementById('feedProfileBtn');
+        const openFriendsBtn = document.getElementById('openFriendsBtn');
+        const chatModal = document.getElementById('chatModal');
+        const chatInput = document.getElementById('chatInput');
+        const chatUserInput = document.getElementById('chatUserInput');
+        const chatMessagesWrap = document.getElementById('chatMessages');
+        const openChatBtn = document.getElementById('openChatBtn');
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            updateNavState();
+            await fetchCurrentUser();
+            if (currentUser) {
+                await fetchPhotos('home');
+                document.getElementById('usernameInput').value = currentUser.username;
+                document.getElementById('usernameInput').readOnly = true;
+            }
+            renderGallery();
+        });
+
+        feedHomeBtn.addEventListener('click', () => setFeedScope('home'));
+        feedProfileBtn.addEventListener('click', () => setFeedScope('profile'));
+        document.getElementById('feedAllBtn').addEventListener('click', () => setFeedScope('all'));
+        openFriendsBtn.addEventListener('click', () => {
+            if (!currentUser) {
+                openLoginModal();
+                return;
+            }
+            loadFriendRequests();
+            friendModal.classList.remove('hidden');
+            friendModal.classList.add('flex');
+        });
+
+        openChatBtn.addEventListener('click', () => {
+            if (!currentUser) {
+                openLoginModal();
+                return;
+            }
+            chatModal.classList.remove('hidden');
+            chatModal.classList.add('flex');
+            chatMessagesWrap.innerHTML = '<p class="text-sm text-gray-400">Start chatting by selecting a friend.</p>';
+            chatUserInput.focus();
+        });
+
+        async function lookupUserId(username) {
+            const res = await fetch(`${API_BASE}/users/lookup?username=${encodeURIComponent(username)}`, { credentials: 'include' });
+            if (!res.ok) {
+                const payload = await res.json().catch(() => ({}));
+                throw new Error(payload.message || 'User not found');
+            }
+            return res.json();
+        }
+
+        async function fetchChatMessages() {
+            if (!chatUserId) return;
+            const res = await fetch(`${API_BASE}/messages?user_id=${chatUserId}`, { credentials: 'include' });
+            if (!res.ok) {
+                chatMessagesWrap.innerHTML = '<p class="text-sm text-red-500">Failed to load messages.</p>';
+                return;
+            }
+            chatMessages = await res.json();
+            renderChatMessages();
+        }
+
+        function renderChatMessages() {
+            chatMessagesWrap.innerHTML = '';
+            if (!chatMessages.length) {
+                chatMessagesWrap.innerHTML = '<p class="text-sm text-gray-400">No messages yet.</p>';
+                return;
+            }
+            chatMessagesWrap.innerHTML = chatMessages.map(m => {
+                const mine = m.from_user_id === currentUser.id;
+                return `<div class="flex ${mine ? 'justify-end' : 'justify-start'}">
+                    <div class="max-w-[75%] px-3 py-2 rounded-2xl ${mine ? 'bg-gray-900 text-white' : 'bg-white border border-gray-200 text-gray-800'} shadow-sm">
+                        <p class="text-xs ${mine ? 'text-gray-200' : 'text-gray-500'} mb-1">${m.from_username || ''}</p>
+                        <p class="text-sm">${m.text}</p>
+                        <p class="text-[10px] ${mine ? 'text-gray-300' : 'text-gray-400'} mt-1">${new Date(m.timestamp).toLocaleTimeString()}</p>
+                    </div>
+                </div>`;
+            }).join('');
+            chatMessagesWrap.scrollTop = chatMessagesWrap.scrollHeight;
+        }
+
+        window.startChat = async function() {
+            const username = chatUserInput.value.trim();
+            if (!username) return;
+            try {
+                const user = await lookupUserId(username);
+                chatUserId = user.id;
+                chatUsername = user.username;
+                await fetchChatMessages();
+                if (chatPoll) clearInterval(chatPoll);
+                chatPoll = setInterval(fetchChatMessages, 4000);
+                showToast(`Chatting with ${chatUsername}`);
+            } catch (e) {
+                showToast(e.message || 'Unable to start chat', 'error');
+            }
+        }
+
+        window.sendChatMessage = async function() {
+            if (!chatUserId) {
+                showToast('Select a user first', 'error');
+                return;
+            }
+            const text = chatInput.value.trim();
+            if (!text) return;
+            chatInput.value = '';
+            const res = await fetch(`${API_BASE}/messages`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ to_user_id: chatUserId, text })
+            });
+            if (!res.ok) {
+                showToast('Failed to send message', 'error');
+                return;
+            }
+            await fetchChatMessages();
+        }
+
+        function updateNavState() {
+            if (currentUser) {
+                navAuthSection.innerHTML = `
+                    <div class="flex items-center gap-3 pl-4 border-l border-gray-200">
+                        <div class="text-right hidden md:block">
+                            <p class="text-xs text-gray-400 font-medium uppercase tracking-wider">Logged in as</p>
+                            <p class="text-sm font-bold text-gray-900">${currentUser.username}</p>
+                        </div>
+                        <div class="w-9 h-9 rounded-full bg-gradient-to-br from-brand-500 to-indigo-600 text-white flex items-center justify-center font-bold shadow-md cursor-pointer hover:ring-2 ring-offset-2 ring-brand-500 transition-all" onclick="logout()">
+                            ${currentUser.username.charAt(0).toUpperCase()}
+                        </div>
+                    </div>
+                `;
+            } else {
+                navAuthSection.innerHTML = `
+                    <button onclick="openLoginModal()" class="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">
+                        Log in
+                    </button>
+                    <div class="w-px h-4 bg-gray-300"></div>
+                    <button onclick="openLoginModal()" class="bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-full text-sm font-medium transition-all shadow-lg shadow-gray-200 flex items-center gap-2">
+                        Sign Up
+                    </button>
+                `;
+            }
+        }
+
+        window.openLoginModal = function() {
+            setAuthMode('login');
+            loginModal.classList.remove('hidden');
+            loginModal.classList.add('flex');
+            loginNameInput.focus();
+        };
+
+        async function fetchCurrentUser() {
+            try {
+                const res = await fetch(`${API_BASE}/auth/me`, { credentials: 'include' });
+                if (!res.ok) {
+                    currentUser = null;
+                } else {
+                    currentUser = await res.json();
+                }
+            } catch {
+                currentUser = null;
+            }
+            updateNavState();
+        }
+
+        function setAuthMode(mode) {
+            authMode = mode;
+            const isSignup = authMode === 'signup';
+            authSubmitBtn.textContent = isSignup ? 'Create account' : 'Log in';
+            authToggleBtn.textContent = isSignup ? 'Already have an account? Log in' : 'Need an account? Sign up';
+            loginModal.querySelector('h2').textContent = isSignup ? 'Create your account' : 'Welcome back';
+        }
+
+        authToggleBtn.addEventListener('click', () => {
+            setAuthMode(authMode === 'login' ? 'signup' : 'login');
+            loginPasswordInput.value = '';
+            loginPasswordInput.focus();
+        });
+
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = loginNameInput.value.trim();
+            const password = loginPasswordInput.value;
+            if (!username || !password) {
+                showToast('Username and password are required', 'error');
+                return;
+            }
+            try {
+                await authenticate(authMode, username, password);
+                await fetchCurrentUser();
+                if (currentUser) {
+                    document.getElementById('usernameInput').value = currentUser.username;
+                    document.getElementById('usernameInput').readOnly = true;
+                    showToast(`Logged in as ${currentUser.username}`);
+                    closeModal(loginModal);
+                    await fetchPhotos();
+                }
+            } catch (err) {
+                showToast(err.message || 'Authentication failed', 'error');
+            }
+        });
+
+        async function authenticate(mode, username, password) {
+            const res = await fetch(`${API_BASE}/auth/${mode}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ username, password })
+            });
+            const payload = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(payload.message || 'Authentication failed');
+            }
+            return payload;
+        }
+
+        window.logout = async function() {
+            try {
+                await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
+            } finally {
+                currentUser = null;
+                photos = [];
+                topics = new Set();
+                updateNavState();
+                renderTopicsFilter();
+                renderGallery();
+            }
+        };
+
+        async function fetchPhotos(scope = 'home') {
+            feedScope = scope;
+            if (!currentUser) {
+                photos = [];
+                topics = new Set();
+                renderGallery();
+                return;
+            }
+            try {
+                const response = await fetch(`${API_BASE}/photos?scope=${scope}`, { credentials: 'include' });
+                if (!response.ok) throw new Error('Unable to load photos');
+                photos = await response.json();
+                photos.sort((a, b) => b.timestamp - a.timestamp);
+                extractTopics();
+                renderTopicsFilter();
+                renderGallery();
+                updateUploadTopicSelect();
+            } catch (error) {
+                console.error(error);
+                showToast("Error loading gallery", "error");
+            }
+        }
+
+        function setFeedScope(scope) {
+            feedScope = scope;
+            feedHomeBtn.classList.toggle('bg-gray-900', scope === 'home');
+            feedHomeBtn.classList.toggle('text-white', scope === 'home');
+            feedHomeBtn.classList.toggle('bg-gray-100', scope !== 'home');
+            feedHomeBtn.classList.toggle('text-gray-600', scope !== 'home');
+
+            feedProfileBtn.classList.toggle('bg-gray-900', scope === 'profile');
+            feedProfileBtn.classList.toggle('text-white', scope === 'profile');
+            feedProfileBtn.classList.toggle('bg-gray-100', scope !== 'profile');
+            feedProfileBtn.classList.toggle('text-gray-600', scope !== 'profile');
+            fetchPhotos(scope);
+        }
+
+        async function uploadPhoto(data) {
+            const response = await fetch(`${API_BASE}/photos`, {
+                method: 'POST',
+                body: data,
+                credentials: 'include'
+            });
+            if (!response.ok) {
+                const payload = await response.json().catch(() => ({}));
+                throw new Error(payload.message || 'Upload failed');
+            }
+            return true;
+        }
+
+        window.handleLike = async function(e, id) {
+            e.stopPropagation();
+            if (!currentUser) {
+                openLoginModal();
+                return;
+            }
+            const button = e.currentTarget;
+            button.classList.add('animate-like');
+            setTimeout(() => button.classList.remove('animate-like'), 300);
+
+            try {
+                const response = await fetch(`${API_BASE}/photos/${id}/like`, { method: 'POST', credentials: 'include' });
+                if (!response.ok) throw new Error('Failed to register like');
+                const payload = await response.json();
+                const photo = photos.find((p) => p.id === id);
+                if (photo) {
+                    photo.likes = payload.likes;
+                    renderGallery();
+                }
+            } catch (err) {
+                console.error(err);
+                showToast("Unable to record like", "error");
+            }
+        };
+
+        window.handleLikeFromModal = async function(e, id) {
+            e.stopPropagation();
+            if (!currentUser) {
+                openLoginModal();
+                return;
+            }
+            const button = e.currentTarget;
+            button.classList.add('animate-like');
+            setTimeout(() => button.classList.remove('animate-like'), 300);
+
+            try {
+                const response = await fetch(`${API_BASE}/photos/${id}/like`, { method: 'POST', credentials: 'include' });
+                if (!response.ok) throw new Error('Failed to register like');
+                const payload = await response.json();
+                const photo = photos.find((p) => p.id === id);
+                if (photo) {
+                    photo.likes = payload.likes;
+                    // Update modal like count
+                    const modalCount = document.getElementById('modalLikeCount');
+                    if (modalCount) modalCount.textContent = payload.likes;
+                }
+                showToast("Liked!", "success");
+            } catch (err) {
+                console.error(err);
+                showToast("Unable to record like", "error");
+            }
+        };
+
+        async function deletePhoto(id) {
+            if (!currentUser) {
+                openLoginModal();
+                return;
+            }
+            if (!confirm("Are you sure you want to delete this photo?")) return;
+
+            try {
+                const response = await fetch(`${API_BASE}/photos/${id}`, { method: 'DELETE', credentials: 'include' });
+                if (!response.ok) throw new Error('Delete failed');
+                closeModal(viewModal);
+                showToast("Photo deleted successfully");
+                fetchPhotos(feedScope);
+            } catch (e) {
+                console.error(e);
+                showToast("Failed to delete photo", "error");
+            }
+        }
+
+        async function loadComments(photoId) {
+            try {
+                const res = await fetch(`${API_BASE}/photos/${photoId}/comments`, { credentials: 'include' });
+                if (!res.ok) throw new Error();
+                currentComments = await res.json();
+                renderComments();
+            } catch (e) {
+                currentComments = [];
+                renderComments(true);
+            }
+        }
+
+        window.postComment = async function(photoId) {
+            const input = document.getElementById('commentInput');
+            const text = input.value.trim();
+            if (!text) return;
+            input.value = '';
+            try {
+                const res = await fetch(`${API_BASE}/photos/${photoId}/comments`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text })
+                });
+                if (!res.ok) throw new Error();
+                const doc = await res.json();
+                currentComments.unshift(doc);
+                renderComments();
+            } catch (e) {
+                showToast('Failed to comment', 'error');
+            }
+        }
+
+        function renderComments(error = false) {
+            const wrap = document.getElementById('commentsList');
+            if (!wrap) return;
+            if (error) {
+                wrap.innerHTML = '<p class="text-sm text-gray-400">Failed to load comments.</p>';
+                return;
+            }
+            if (!currentComments.length) {
+                wrap.innerHTML = '<p class="text-sm text-gray-400">No comments yet.</p>';
+                return;
+            }
+            wrap.innerHTML = '';
+            currentComments.forEach(c => {
+                const div = document.createElement('div');
+                div.className = 'py-2 border-b border-gray-100';
+                div.innerHTML = `<p class="text-sm"><span class="font-semibold">${c.username}</span> ${c.text}</p>
+                                 <p class="text-[11px] text-gray-400">${new Date(c.timestamp).toLocaleString()}</p>`;
+                wrap.appendChild(div);
+            });
+        }
+
+        async function loadFriendRequests() {
+            try {
+                const res = await fetch(`${API_BASE}/friends/requests`, { credentials: 'include' });
+                if (!res.ok) return;
+                const requests = await res.json();
+                friendRequestsList.innerHTML = '';
+                if (!requests.length) {
+                    friendRequestsList.innerHTML = '<p class="text-sm text-gray-400">No pending requests.</p>';
+                    return;
+                }
+                requests.forEach(req => {
+                    const li = document.createElement('div');
+                    li.className = 'flex items-center justify-between bg-gray-50 px-4 py-2 rounded-lg';
+                    li.innerHTML = `<div><p class="font-semibold">${req.requester_username}</p><p class="text-xs text-gray-400">${new Date(req.created_at).toLocaleString()}</p></div>
+                    <div class="flex gap-2">
+                        <button class="text-sm text-green-600" onclick="respondRequest(${req.id}, true)">Accept</button>
+                        <button class="text-sm text-red-500" onclick="respondRequest(${req.id}, false)">Decline</button>
+                    </div>`;
+                    friendRequestsList.appendChild(li);
+                });
+            } catch (e) {
+                friendRequestsList.innerHTML = '<p class="text-sm text-red-500">Failed to load requests.</p>';
+            }
+        }
+
+        window.respondRequest = async function(id, accept) {
+            try {
+                const res = await fetch(`${API_BASE}/friends/respond`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ request_id: id, action: accept ? 'accept' : 'decline' })
+                });
+                if (!res.ok) throw new Error('Failed to update request');
+                await loadFriendRequests();
+                await fetchPhotos(feedScope);
+                showToast('Updated');
+            } catch (e) {
+                showToast('Unable to update request', 'error');
+            }
+        }
+
+        window.sendFriendRequest = async function() {
+            const username = friendSendInput.value.trim();
+            if (!username) return;
+            try {
+                const res = await fetch(`${API_BASE}/friends/request`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username })
+                });
+                const payload = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    throw new Error(payload.message || 'Failed to send');
+                }
+                friendSendInput.value = '';
+                showToast('Friend request sent');
+            } catch (e) {
+                showToast(e.message || 'Failed to send request', 'error');
+            }
+        }
+
+        function extractTopics() {
+            topics = new Set(photos.map(p => p.topic));
+        }
+
+        function renderTopicsFilter() {
+            topicFilterContainer.innerHTML = '';
+            const allBtn = createFilterButton('All', activeFilter === 'All');
+            topicFilterContainer.appendChild(allBtn);
+
+            topics.forEach(topic => {
+                const btn = createFilterButton(topic, activeFilter === topic);
+                topicFilterContainer.appendChild(btn);
+            });
+        }
+
+        function createFilterButton(label, isActive) {
+            const btn = document.createElement('button');
+            btn.textContent = label;
+            btn.className = `px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 ${
+                isActive
+                    ? 'bg-gray-900 text-white shadow-md'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-900'
+            }`;
+            btn.onclick = () => {
+                activeFilter = label;
+                renderTopicsFilter();
+                renderGallery();
+            };
+            return btn;
+        }
+
+        function updateUploadTopicSelect() {
+            const existingOpts = topicSelect.querySelectorAll('option:not([value="new"]):not([disabled])');
+            existingOpts.forEach(el => el.remove());
+
+            const insertBefore = topicSelect.lastElementChild;
+            topics.forEach(t => {
+                const option = document.createElement('option');
+                option.value = t;
+                option.textContent = t;
+                topicSelect.insertBefore(option, insertBefore);
+            });
+        }
+
+        function renderGallery() {
+            galleryGrid.innerHTML = '';
+
+            if (!currentUser) {
+                galleryGrid.innerHTML = `
+                    <div class="col-span-full flex flex-col items-center justify-center py-32 text-gray-300">
+                        <div class="bg-gray-50 p-6 rounded-full mb-4">
+                            <i data-lucide="lock" class="w-8 h-8 opacity-50"></i>
+                        </div>
+                        <p class="text-lg font-medium text-gray-500">Log in to view the gallery</p>
+                        <button onclick="openLoginModal()" class="mt-4 bg-gray-900 text-white px-4 py-2 rounded-full text-sm font-semibold">Log in</button>
+                    </div>
+                `;
+                lucide.createIcons();
+                return;
+            }
+
+            let filteredPhotos = photos;
+
+            if (activeFilter !== 'All') {
+                filteredPhotos = filteredPhotos.filter(p => p.topic === activeFilter);
+            }
+
+            if (searchQuery) {
+                const q = searchQuery.toLowerCase();
+                filteredPhotos = filteredPhotos.filter(p =>
+                    p.topic.toLowerCase().includes(q) ||
+                    p.username.toLowerCase().includes(q)
+                );
+            }
+
+            if (filteredPhotos.length === 0) {
+                galleryGrid.innerHTML = `
+                    <div class="col-span-full flex flex-col items-center justify-center py-32 text-gray-300">
+                        <div class="bg-gray-50 p-6 rounded-full mb-4">
+                            <i data-lucide="search" class="w-8 h-8 opacity-50"></i>
+                        </div>
+                        <p class="text-lg font-medium text-gray-500">No photos found</p>
+                        <p class="text-sm text-gray-400 mt-1">Try adjusting your search or filter.</p>
+                    </div>
+                `;
+                lucide.createIcons();
+                return;
+            }
+
+            filteredPhotos.forEach((photo, index) => {
+                const card = document.createElement('div');
+                card.style.animationDelay = `${index * 50}ms`;
+                card.className = 'group animate-fade-in break-inside-avoid mb-6 cursor-zoom-in relative';
+
+                const likes = photo.likes || 0;
+
+                card.innerHTML = `
+                    <div class="relative overflow-hidden rounded-xl bg-gray-100 shadow-sm hover:shadow-lg transition-all duration-300">
+                        <img src="${photo.thumbnail}" alt="${photo.topic}" class="w-full h-auto block transform transition-transform duration-700 group-hover:scale-105" loading="lazy">
+
+                        <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-4">
+                            <div class="flex justify-end">
+                                <button onclick="handleLike(event, '${photo.id}')" class="bg-white/90 hover:bg-white text-gray-700 hover:text-red-500 p-2 rounded-lg backdrop-blur-sm transition-all transform hover:scale-110 shadow-sm">
+                                    <i data-lucide="heart" class="w-4 h-4 ${likes > 0 ? 'fill-red-500 text-red-500' : ''}"></i>
+                                </button>
+                            </div>
+
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-2 text-white">
+                                    <div class="w-6 h-6 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-[10px] font-bold border border-white/30">
+                                        ${photo.username.charAt(0).toUpperCase()}
+                                    </div>
+                                    <span class="text-sm font-medium truncate max-w-[100px]">${photo.username}</span>
+                                </div>
+                                <div class="bg-white/20 backdrop-blur-md px-2 py-1 rounded text-[10px] font-medium text-white border border-white/20">
+                                    <i data-lucide="heart" class="w-3 h-3 inline mr-1"></i>${likes}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                card.addEventListener('click', (e) => {
+                    if (!e.target.closest('button')) openViewModal(photo);
+                });
+                galleryGrid.appendChild(card);
+            });
+            lucide.createIcons();
+        }
+
+        function openViewModal(photo) {
+            currentPhotoId = photo.id;
+            const content = document.getElementById('viewModalContent');
+            const date = new Date(photo.timestamp).toLocaleString(undefined, { dateStyle: 'medium' });
+            const likes = photo.likes || 0;
+
+            content.innerHTML = `
+                <div class="flex flex-col h-full">
+                    <div class="flex-1 relative flex items-center justify-center bg-gray-50/50 rounded-xl overflow-hidden border border-gray-100">
+                        <img src="${photo.fullRes}" class="max-h-[60vh] w-auto object-contain shadow-lg rounded-lg" alt="${photo.topic}">
+                        <div class="absolute top-4 right-4 flex flex-col gap-2">
+                            <a href="${photo.fullRes}" download="lumina-${photo.id}.jpg" class="bg-white/90 hover:bg-white text-gray-700 p-3 rounded-xl backdrop-blur-md shadow-sm transition-all hover:scale-105 group" title="Download High-Res">
+                                <i data-lucide="download" class="w-5 h-5 group-hover:text-brand-600"></i>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="mt-6 pt-6 border-t border-gray-100 space-y-4">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+                            <div class="flex items-center gap-4">
+                                <div class="w-14 h-14 rounded-full bg-gradient-to-br from-gray-800 to-black text-white flex items-center justify-center text-xl font-bold shadow-lg ring-4 ring-white">
+                                    ${photo.username.charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                    <h3 class="text-xl font-bold text-gray-900 leading-tight">${photo.username}</h3>
+                                    <div class="flex items-center gap-3 mt-1 text-sm text-gray-500">
+                                        <span class="text-brand-600 bg-brand-50 px-2.5 py-0.5 rounded-md font-semibold uppercase text-xs tracking-wider">${photo.topic}</span>
+                                        <span>•</span>
+                                        <span>${date}</span>
+                                    </div>
+                                    ${photo.caption ? `<p class="text-sm text-gray-700 mt-2">${photo.caption}</p>` : ''}
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <button onclick="handleLikeFromModal(event, '${photo.id}')" class="flex items-center gap-2 bg-gray-50 hover:bg-red-50 px-4 py-2.5 rounded-xl border border-gray-200 hover:border-red-200 transition-all cursor-pointer group">
+                                    <i data-lucide="heart" class="w-5 h-5 text-red-500 group-hover:fill-red-500"></i>
+                                    <span id="modalLikeCount" class="font-bold text-gray-900">${likes}</span>
+                                    <span class="text-gray-500 text-sm">Likes</span>
+                                </button>
+                                <button onclick="window.dispatchEvent(new CustomEvent('delete-photo', {detail: '${photo.id}'}))" 
+                                    class="flex items-center gap-2 px-5 py-2.5 rounded-xl text-gray-600 hover:text-red-600 hover:bg-red-50 font-medium transition-all border border-transparent hover:border-red-100">
+                                    <i data-lucide="trash-2" class="w-4 h-4"></i> 
+                                </button>
+                            </div>
+                        </div>
+                        <div class="bg-gray-50 rounded-xl p-4 border border-gray-100">
+                            <h4 class="font-semibold text-gray-800 mb-2">Comments</h4>
+                            <div id="commentsList" class="max-h-48 overflow-y-auto pr-2 space-y-1 text-sm text-gray-700"></div>
+                            <div class="mt-3 flex gap-2">
+                                <input id="commentInput" type="text" placeholder="Add a comment..." class="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-gray-900">
+                                <button onclick="postComment('${photo.id}')" class="px-3 py-2 bg-gray-900 text-white rounded-lg text-sm font-semibold">Post</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            viewModal.classList.remove('hidden');
+            viewModal.classList.add('flex');
+            loadComments(photo.id);
+            lucide.createIcons();
+        }
+
+        window.addEventListener('delete-photo', (e) => deletePhoto(e.detail));
+
+        searchInput.addEventListener('input', (e) => {
+            searchQuery = e.target.value.trim();
+            renderGallery();
+        });
+
+        function closeModal(modal) {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            if (modal === uploadModal) {
+                filePreview.innerHTML = '';
+                newTopicInput.classList.add('hidden');
+                filePreview.classList.add('hidden');
+                uploadForm.reset();
+                if (currentUser) document.getElementById('usernameInput').value = currentUser.username;
+            } else if (modal === chatModal) {
+                chatUserId = null;
+                chatMessages = [];
+                if (chatPoll) clearInterval(chatPoll);
+                chatMessagesWrap.innerHTML = '';
+            }
+        }
+
+        document.querySelectorAll('.close-modal').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                closeModal(e.target.closest('.fixed'));
+            });
+        });
+
+        [uploadModal, viewModal, loginModal, chatModal].forEach(modal => {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) closeModal(modal);
+            });
+        });
+
+        document.getElementById('openUploadBtn').addEventListener('click', () => {
+            if (!currentUser) {
+                openLoginModal();
+                showToast("Please log in to upload", "error");
+                return;
+            }
+            document.getElementById('usernameInput').value = currentUser.username;
+            document.getElementById('usernameInput').readOnly = true;
+            uploadModal.classList.remove('hidden');
+            uploadModal.classList.add('flex');
+        });
+
+        topicSelect.addEventListener('change', (e) => {
+            if (e.target.value === 'new') {
+                newTopicInput.classList.remove('hidden');
+                newTopicInput.required = true;
+                newTopicInput.focus();
+            } else {
+                newTopicInput.classList.add('hidden');
+                newTopicInput.required = false;
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                filePreview.innerHTML = `<img src=\"${event.target.result}\" class=\"w-full h-48 object-cover rounded-xl shadow-inner\">`;
+                filePreview.classList.remove('hidden');
+            };
+            reader.readAsDataURL(file);
+        });
+
+        uploadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!currentUser) {
+                openLoginModal();
+                return;
+            }
+            const file = fileInput.files[0];
+            let topic = topicSelect.value;
+
+            if (topic === 'new') {
+                topic = newTopicInput.value.trim();
+            }
+
+            if (!file || !topic) {
+                showToast("Please fill in all fields", "error");
+                return;
+            }
+
+            const submitBtn = uploadForm.querySelector('button[type=\"submit\"]');
+            const originalBtnText = submitBtn.innerHTML;
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = `<div class=\"flex items-center justify-center gap-2\"><i data-lucide=\"loader\" class=\"w-4 h-4 animate-spin\"></i><span>Processing...</span></div>`;
+            lucide.createIcons();
+
+            const formData = new FormData();
+            formData.append('photo', file);
+            formData.append('topic', topic);
+
+            try {
+                await uploadPhoto(formData);
+                showToast("Photo published!");
+                closeModal(uploadModal);
+                fetchPhotos(feedScope);
+            } catch (err) {
+                console.error(err);
+                showToast(err.message || "Upload failed", "error");
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalBtnText;
+            }
+        });
+
+        function showToast(message, type = 'success') {
+            const toast = document.createElement('div');
+            toast.className = `fixed bottom-6 right-6 px-6 py-3 rounded-xl shadow-2xl text-white text-sm font-medium transform transition-all duration-300 translate-y-10 opacity-0 z-[60] flex items-center gap-3 ${type === 'success' ? 'bg-gray-900' : 'bg-red-500'}`;
+            const icon = type === 'success' ? '<i data-lucide=\"check-circle\" class=\"w-4 h-4 text-green-400\"></i>' : '<i data-lucide=\"alert-circle\" class=\"w-4 h-4 text-white\"></i>';
+            toast.innerHTML = `${icon} <span>${message}</span>`;
+            document.body.appendChild(toast);
+            lucide.createIcons();
+
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-10', 'opacity-0');
+            });
+
+            setTimeout(() => {
+                toast.classList.add('translate-y-10', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        lucide.createIcons();
+    </script>
+</head>
+<body class="bg-white text-gray-900 font-sans min-h-screen flex flex-col selection:bg-brand-100 selection:text-brand-900">
+
+    <!-- Header -->
+    <header class="fixed top-0 w-full z-40 bg-white/80 backdrop-blur-md border-b border-gray-100 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-[72px] flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-12 h-12 rounded-2xl bg-gray-900 text-white flex items-center justify-center text-xl font-bold shadow-lg cursor-pointer" onclick="window.location.reload()">
+                    <i data-lucide="aperture" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <p class="text-xs uppercase tracking-[0.2em] text-gray-400 font-semibold">Lumina</p>
+                    <p class="text-sm text-gray-500">Visual discovery for friends</p>
+                </div>
+            </div>
+
+            <div class="flex-1 max-w-3xl relative">
+                <div class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
+                    <i data-lucide="search" class="w-5 h-5"></i>
+                </div>
+                <input type="text" id="searchInput" placeholder="Search photos, topics, or photographers..." 
+                    class="w-full bg-gray-100/80 hover:bg-white border border-gray-200 rounded-full py-2.5 pl-12 pr-4 text-sm transition-all outline-none focus:ring-4 focus:ring-gray-100 shadow-inner">
+            </div>
+
+            <div class="flex items-center gap-3">
+                <button id="openUploadBtn" class="hidden sm:flex px-3 py-2 rounded-xl bg-gray-900 text-white text-sm font-semibold shadow-md hover:-translate-y-0.5 transition-all">
+                    Upload
+                </button>
+                <button id="openFriendsBtn" class="hidden sm:flex px-3 py-2 rounded-xl bg-white border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 shadow-sm">
+                    Friends
+                </button>
+                <button id="openChatBtn" class="hidden sm:flex px-3 py-2 rounded-xl bg-white border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 shadow-sm">
+                    Chat
+                </button>
+                <div id="navAuthSection" class="flex items-center gap-3"></div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Sticky Filter Bar -->
+    <div class="fixed top-[72px] right-4 z-30">
+        <div class="bg-white/95 backdrop-blur-sm border border-gray-200 shadow-xl rounded-2xl p-3 flex flex-col gap-2 w-44">
+            <p class="text-xs font-semibold text-gray-400 uppercase tracking-[0.15em] px-2">Feed</p>
+            <button id="feedHomeBtn" data-feed-toggle="home" class="text-left px-3 py-2 rounded-xl text-sm font-semibold bg-gray-900 text-white shadow-sm">Home Feed</button>
+            <button id="feedProfileBtn" data-feed-toggle="profile" class="text-left px-3 py-2 rounded-xl text-sm font-semibold bg-gray-100 text-gray-600">My Posts</button>
+            <button id="feedAllBtn" data-feed-toggle="all" class="text-left px-3 py-2 rounded-xl text-sm font-semibold bg-gray-100 text-gray-600">All</button>
+            <div class="pt-3 border-t border-gray-100">
+                <p class="text-xs font-semibold text-gray-400 uppercase tracking-[0.15em] px-2 mb-2">Topics</p>
+                <div id="topicFilterContainer" class="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-1">
+                    <!-- Buttons injected by JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="flex-grow pt-40 pb-20 px-4 sm:px-6 lg:px-8 w-full max-w-[1600px] mx-auto">
+        <div id="galleryGrid" class="columns-2 md:columns-3 lg:columns-4 gap-6 space-y-6">
+            <!-- Cards injected by JS -->
+        </div>
+    </main>
+
+    <!-- Upload Modal -->
+    <div id="uploadModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden ring-1 ring-black/5 animate-fade-in">
+            <div class="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-white">
+                <h3 class="text-xl font-bold text-gray-900">Share your vision</h3>
+                <button class="close-modal text-gray-400 hover:text-gray-900 bg-gray-50 hover:bg-gray-100 p-2 rounded-full transition-all">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <form id="uploadForm" class="p-8 space-y-6">
+                <div class="group">
+                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Photographer</label>
+                    <input type="text" id="usernameInput" required 
+                        class="w-full rounded-xl border-gray-200 bg-gray-50 text-gray-500 cursor-not-allowed transition-all text-base py-3 px-4 font-medium">
+                </div>
+                <div class="group">
+                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Topic</label>
+                    <div class="space-y-3">
+                        <div class="relative">
+                            <select id="topicSelect" required class="w-full appearance-none rounded-xl border-gray-200 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-gray-900 focus:border-transparent text-base py-3 px-4 pr-10 cursor-pointer">
+                                <option value="" disabled selected>Select a collection...</option>
+                                <option value="new" class="font-semibold text-brand-600">+ Create New Collection</option>
+                            </select>
+                            <i data-lucide="chevron-down" class="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"></i>
+                        </div>
+                        <input type="text" id="newTopicInput" placeholder="e.g., Architecture..." 
+                            class="hidden w-full rounded-xl border-gray-200 bg-white focus:ring-2 focus:ring-gray-900 text-base py-3 px-4 shadow-sm animate-fade-in">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Image</label>
+                    <label class="flex flex-col items-center justify-center w-full h-48 border-2 border-gray-200 border-dashed rounded-2xl cursor-pointer bg-gray-50 hover:bg-gray-100 hover:border-gray-300 transition-all relative overflow-hidden">
+                        <div class="flex flex-col items-center justify-center pt-5 pb-6 z-10">
+                            <i data-lucide="upload-cloud" class="w-8 h-8 text-gray-400 mb-3"></i>
+                            <p class="text-sm font-medium text-gray-600">Click or drag file</p>
+                        </div>
+                        <input id="fileInput" type="file" class="hidden" accept="image/*" required />
+                        <div id="filePreview" class="absolute inset-0 hidden bg-white z-20 p-2"></div>
+                    </label>
+                </div>
+                <div class="group">
+                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Caption</label>
+                    <textarea id="captionInput" rows="2" placeholder="Write something about your photo..." class="w-full rounded-xl border-gray-200 bg-white focus:ring-2 focus:ring-gray-900 text-base py-3 px-4 shadow-sm"></textarea>
+                </div>
+                <button id="uploadBtn" type="submit" class="w-full bg-gray-900 hover:bg-black text-white font-bold py-4 rounded-xl shadow-lg transition-all transform hover:-translate-y-0.5 flex justify-center items-center gap-2">
+                    Publish to Gallery
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Login Modal -->
+    <div id="loginModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden p-8 animate-fade-in">
+            <div class="text-center mb-8">
+                <div class="w-12 h-12 bg-gray-900 rounded-xl flex items-center justify-center text-white mx-auto mb-4 shadow-glow">
+                    <i data-lucide="aperture" class="w-6 h-6"></i>
+                </div>
+                <h2 class="text-2xl font-bold text-gray-900">Welcome back</h2>
+                <p class="text-gray-500 mt-2">Log in or create an account to continue.</p>
+            </div>
+            <form id="loginForm" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Username</label>
+                    <input type="text" id="loginNameInput" required placeholder="e.g. ansel" 
+                        class="w-full rounded-xl border-gray-200 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-gray-900 transition-all text-lg py-3 px-4 text-center font-medium">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Password</label>
+                    <input type="password" id="loginPasswordInput" required placeholder="••••••••" 
+                        class="w-full rounded-xl border-gray-200 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-gray-900 transition-all text-lg py-3 px-4 text-center font-medium">
+                </div>
+                <button id="authSubmitBtn" type="submit" class="w-full bg-gray-900 hover:bg-black text-white font-bold py-3.5 rounded-xl shadow-lg transition-all">
+                    Log in
+                </button>
+                <button id="authToggleBtn" type="button" class="w-full text-gray-600 hover:text-gray-900 text-sm font-medium py-2">
+                    Need an account? Sign up
+                </button>
+                <button type="button" class="close-modal w-full text-gray-400 hover:text-gray-600 text-sm font-medium py-2">
+                    Cancel
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Friends Modal -->
+    <div id="friendModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden p-6 animate-fade-in">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-gray-900">Friends</h3>
+                <button class="close-modal text-gray-400 hover:text-gray-900 bg-gray-50 hover:bg-gray-100 p-2 rounded-full transition-all">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div class="space-y-4">
+                <div>
+                    <label class="text-xs font-bold uppercase text-gray-500">Send request</label>
+                    <div class="flex gap-2 mt-2">
+                        <input id="friendSendInput" type="text" placeholder="username" class="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-gray-900">
+                        <button onclick="sendFriendRequest()" class="px-3 py-2 bg-gray-900 text-white rounded-lg text-sm font-semibold">Send</button>
+                    </div>
+                </div>
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-semibold text-gray-800">Incoming requests</h4>
+                        <button onclick="loadFriendRequests()" class="text-xs text-gray-500 underline">Refresh</button>
+                    </div>
+                    <div id="friendRequestsList" class="max-h-48 overflow-y-auto space-y-2 text-sm"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chat Modal -->
+    <div id="chatModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden p-6 animate-fade-in flex flex-col gap-4">
+            <div class="flex justify-between items-center">
+                <h3 class="text-lg font-bold text-gray-900">Chat</h3>
+                <button class="close-modal text-gray-400 hover:text-gray-900 bg-gray-50 hover:bg-gray-100 p-2 rounded-full transition-all">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div class="flex gap-2">
+                <input id="chatUserInput" type="text" placeholder="Friend's username" class="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-gray-900">
+                <button onclick="startChat()" class="px-3 py-2 bg-gray-900 text-white rounded-lg text-sm font-semibold">Open</button>
+            </div>
+            <div id="chatMessages" class="flex-1 min-h-[200px] max-h-[300px] overflow-y-auto border border-gray-100 rounded-lg p-3 bg-gray-50 text-sm space-y-2"></div>
+            <div class="flex gap-2">
+                <input id="chatInput" type="text" placeholder="Type a message..." class="flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-gray-900">
+                <button onclick="sendChatMessage()" class="px-3 py-2 bg-gray-900 text-white rounded-lg text-sm font-semibold">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- View Photo Modal -->
+    <div id="viewModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-white/95 backdrop-blur-xl p-4 sm:p-8 transition-opacity duration-300">
+        <div class="w-full max-w-6xl bg-white rounded-3xl shadow-2xl overflow-hidden border border-gray-100 relative flex flex-col max-h-[90vh] ring-1 ring-black/5">
+            <div class="absolute top-4 right-4 z-10 flex gap-2">
+                <button class="close-modal bg-white/80 hover:bg-white text-gray-500 hover:text-gray-900 p-2.5 rounded-full backdrop-blur-md shadow-sm transition-all ring-1 ring-gray-200">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div id="viewModalContent" class="p-8 h-full overflow-y-auto"></div>
+        </div>
+    </div>
+
+</body>
+</html>

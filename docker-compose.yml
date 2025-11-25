@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: lumina-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-lumina_root_pass}
+      MYSQL_DATABASE: ${DB_NAME:-lumina}
+      MYSQL_USER: ${DB_USER:-lumina_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-lumina_pass}
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+    networks:
+      - lumina-network
+
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: lumina-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-mongo_pass}
+      MONGO_INITDB_DATABASE: ${MONGO_DB:-lumina}
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      timeout: 10s
+      retries: 5
+    networks:
+      - lumina-network
+
+  # Flask Application
+  web:
+    build: .
+    container_name: lumina-web
+    environment:
+      # MySQL Configuration
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: ${DB_USER:-lumina_user}
+      DB_PASSWORD: ${DB_PASSWORD:-lumina_pass}
+      DB_NAME: ${DB_NAME:-lumina}
+      
+      # MongoDB Configuration
+      MONGO_URI: mongodb://${MONGO_USER:-admin}:${MONGO_PASSWORD:-mongo_pass}@mongodb:27017/
+      MONGO_DB: ${MONGO_DB:-lumina}
+      
+      # Flask Configuration
+      SECRET_KEY: ${SECRET_KEY:-change-this-in-production}
+      FLASK_ENV: ${FLASK_ENV:-production}
+    ports:
+      - "8080:5000"
+    volumes:
+      - ./static/uploads:/app/static/uploads
+      - ./data:/app/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - lumina-network
+
+volumes:
+  mysql_data:
+  mongodb_data:
+
+networks:
+  lumina-network:
+    driver: bridge
