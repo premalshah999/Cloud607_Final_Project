@@ -489,7 +489,7 @@ class StorageDynamoDB:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    SELECT u.id, u.username, u.profile_pic_thumb_key as profile_pic_thumb_id
+                    SELECT u.id, u.username
                     FROM friend_requests fr
                     JOIN users u ON u.id = CASE WHEN fr.requester_id=%s THEN fr.receiver_id ELSE fr.requester_id END
                     WHERE fr.status='accepted' AND (fr.requester_id=%s OR fr.receiver_id=%s)
@@ -511,9 +511,11 @@ class StorageDynamoDB:
         
         # Create conversation ID (smaller user ID first for consistency)
         user1, user2 = sorted([from_user['id'], to_user_id])
-        conversation_id = f"{user1}#{user2}"
+        conversation_id = f"CONV#{user1}#{user2}"
         
         item = {
+            'PK': conversation_id,
+            'SK': f"MSG#{timestamp}#{message_id}",
             'conversation_id': conversation_id,
             'sort_key': f"{timestamp}#{message_id}",
             'message_id': message_id,
@@ -530,10 +532,10 @@ class StorageDynamoDB:
         """List messages between two users."""
         try:
             user1, user2 = sorted([user_id, other_user_id])
-            conversation_id = f"{user1}#{user2}"
+            conversation_id = f"CONV#{user1}#{user2}"
             
             response = self.messages_table.query(
-                KeyConditionExpression=Key('conversation_id').eq(conversation_id),
+                KeyConditionExpression=Key('PK').eq(conversation_id) & Key('SK').begins_with('MSG#'),
                 ScanIndexForward=True,  # Ascending order (oldest first)
                 Limit=100
             )
