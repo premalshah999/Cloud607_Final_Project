@@ -279,6 +279,8 @@ class StorageDynamoDB:
         
         # Store metadata in DynamoDB
         item = {
+            'PK': f'PHOTO#{photo_id}',
+            'SK': 'META',
             'id': photo_id,
             'user_id': user['id'],
             'username': user['username'],
@@ -290,12 +292,24 @@ class StorageDynamoDB:
             'full_key': full_key,
         }
         self.photos_table.put_item(Item=item)
+        
+        # Also create user index
+        self.photos_table.put_item(Item={
+            'PK': f'USER#{user["id"]}',
+            'SK': f'PHOTO#{photo_id}',
+            'photo_id': photo_id,
+            'timestamp': timestamp,
+        })
+        
         return item
 
     def delete_photo(self, photo_id: str) -> Optional[Dict[str, Any]]:
         """Delete a photo and its associated data."""
         try:
-            response = self.photos_table.get_item(Key={'id': photo_id})
+            response = self.photos_table.get_item(Key={
+                'PK': f'PHOTO#{photo_id}',
+                'SK': 'META'
+            })
             item = response.get('Item')
             if not item:
                 return None
@@ -304,8 +318,19 @@ class StorageDynamoDB:
             self.s3.delete_object(Bucket=self.bucket_name, Key=item.get('thumbnail_key', ''))
             self.s3.delete_object(Bucket=self.bucket_name, Key=item.get('full_key', ''))
             
-            # Delete from DynamoDB
-            self.photos_table.delete_item(Key={'id': photo_id})
+            # Delete from DynamoDB (main photo record)
+            self.photos_table.delete_item(Key={
+                'PK': f'PHOTO#{photo_id}',
+                'SK': 'META'
+            })
+            
+            # Delete user index entry
+            user_id = item.get('user_id')
+            if user_id:
+                self.photos_table.delete_item(Key={
+                    'PK': f'USER#{user_id}',
+                    'SK': f'PHOTO#{photo_id}'
+                })
             
             # Delete comments
             self._delete_comments_for_photo(photo_id)
@@ -317,7 +342,10 @@ class StorageDynamoDB:
     def get_photo(self, photo_id: str) -> Optional[Dict[str, Any]]:
         """Get a single photo by ID."""
         try:
-            response = self.photos_table.get_item(Key={'id': photo_id})
+            response = self.photos_table.get_item(Key={
+                'PK': f'PHOTO#{photo_id}',
+                'SK': 'META'
+            })
             item = response.get('Item')
             return self._deserialize_photo(item) if item else None
         except ClientError:
@@ -327,7 +355,10 @@ class StorageDynamoDB:
         """Increment like count for a photo."""
         try:
             response = self.photos_table.update_item(
-                Key={'id': photo_id},
+                Key={
+                    'PK': f'PHOTO#{photo_id}',
+                    'SK': 'META'
+                },
                 UpdateExpression='SET likes = if_not_exists(likes, :zero) + :inc',
                 ExpressionAttributeValues={':inc': 1, ':zero': 0},
                 ReturnValues='UPDATED_NEW'
