@@ -161,13 +161,17 @@ class StorageDynamoDB:
     # ------------------------------------------------------------------
     # User management (MySQL)
     # ------------------------------------------------------------------
-    def create_user(self, username: str, password: str) -> Dict[str, Any]:
+    def create_user(self, username: str, password: str, email: Optional[str] = None) -> Dict[str, Any]:
         password_hash = generate_password_hash(password)
+        # Use placeholder email if none provided (for backwards compatibility)
+        if not email:
+            email = f"{username}@lumina.local"
+        
         with self.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO users (username, password_hash) VALUES (%s, %s)",
-                    (username, password_hash),
+                    "INSERT INTO users (username, email, password_hash) VALUES (%s, %s, %s)",
+                    (username, email, password_hash),
                 )
                 user_id = cur.lastrowid
         return {'id': user_id, 'username': username}
