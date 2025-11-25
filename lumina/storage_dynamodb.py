@@ -244,25 +244,20 @@ class StorageDynamoDB:
                     )
                     items.extend(response.get('Items', []))
             else:
-                # Query photos for specific users using PK pattern
+                # For specific users, scan with filter (simpler and faster than multiple queries + gets)
                 items = []
-                for uid in user_ids:
-                    response = self.photos_table.query(
-                        KeyConditionExpression=Key('PK').eq(f'USER#{uid}') & Key('SK').begins_with('PHOTO#')
+                response = self.photos_table.scan(
+                    FilterExpression=Attr('SK').eq('META') & Attr('user_id').is_in(user_ids)
+                )
+                items = response.get('Items', [])
+                
+                # Handle pagination
+                while 'LastEvaluatedKey' in response:
+                    response = self.photos_table.scan(
+                        FilterExpression=Attr('SK').eq('META') & Attr('user_id').is_in(user_ids),
+                        ExclusiveStartKey=response['LastEvaluatedKey']
                     )
-                    user_photos = response.get('Items', [])
-                    
-                    # For each user's photo index entry, fetch the actual photo metadata
-                    for user_photo in user_photos:
-                        photo_id = user_photo.get('photo_id')
-                        if photo_id:
-                            photo_response = self.photos_table.get_item(Key={
-                                'PK': f'PHOTO#{photo_id}',
-                                'SK': 'META'
-                            })
-                            photo_item = photo_response.get('Item')
-                            if photo_item:
-                                items.append(photo_item)
+                    items.extend(response.get('Items', []))
             
             # Convert Decimal to int and sort by timestamp
             photos = [self._deserialize_photo(item) for item in items]
@@ -398,11 +393,12 @@ class StorageDynamoDB:
         """List comments for a photo."""
         try:
             response = self.comments_table.query(
-                KeyConditionExpression=Key('photo_id').eq(photo_id),
-                ScanIndexForward=False  # Descending order
+                KeyConditionExpression=Key('PK').eq(f'PHOTO#{photo_id}') & Key('SK').begins_with('COMMENT#'),
+                ScanIndexForward=True  # Ascending order (oldest first)
             )
             return [self._deserialize_item(item) for item in response.get('Items', [])]
-        except ClientError:
+        except ClientError as e:
+            print(f"Error listing comments: {e}")
             return []
 
     def add_comment(self, photo_id: str, user: Dict[str, Any], text: str) -> Dict[str, Any]:
@@ -411,8 +407,9 @@ class StorageDynamoDB:
         comment_id = uuid.uuid4().hex
         
         item = {
+            'PK': f'PHOTO#{photo_id}',
+            'SK': f'COMMENT#{timestamp}#{comment_id}',
             'photo_id': photo_id,
-            'sort_key': f"{timestamp}#{comment_id}",
             'comment_id': comment_id,
             'user_id': user['id'],
             'username': user['username'],
@@ -426,11 +423,14 @@ class StorageDynamoDB:
         """Delete all comments for a photo."""
         try:
             response = self.comments_table.query(
-                KeyConditionExpression=Key('photo_id').eq(photo_id)
+                KeyConditionExpression=Key('PK').eq(f'PHOTO#{photo_id}') & Key('SK').begins_with('COMMENT#')
             )
             for item in response.get('Items', []):
                 self.comments_table.delete_item(
-                    Key={'photo_id': photo_id, 'sort_key': item['sort_key']}
+                    Key={
+                        'PK': f'PHOTO#{photo_id}',
+                        'SK': item['SK']
+                    }
                 )
         except ClientError:
             pass
