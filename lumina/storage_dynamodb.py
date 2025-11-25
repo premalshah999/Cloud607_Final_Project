@@ -43,19 +43,19 @@ class StorageDynamoDB:
     
     Database Schema:
         MySQL Tables (RDS):
-            - users: id, username, password_hash, profile_pic_key, created_at
+            - users: id, username, email, password_hash, created_at
             - friend_requests: id, requester_id, receiver_id, status, created_at
         
         DynamoDB Tables:
-            - lumina_photos: PK=photo_id, user_id, username, topic, likes, timestamp
-            - lumina_comments: PK=photo_id, SK=timestamp#comment_id
-            - lumina_messages: PK=conversation_id, SK=timestamp
+            - lumina_photos: PK=PHOTO#{id}, SK=META, user_id, username, topic, likes, timestamp
+            - lumina_comments: PK=PHOTO#{photo_id}, SK=COMMENT#{timestamp}#{comment_id}
+            - lumina_messages: PK=CONV#{conversation_id}, SK=MSG#{timestamp}
         
         S3 Bucket:
             - photos/{photo_id}_full.jpg
             - photos/{photo_id}_thumb.jpg
-            - profiles/{user_id}_full.jpg
-            - profiles/{user_id}_thumb.jpg
+            - profiles/{user_id}_full.jpg (optional, stored directly without DB reference)
+            - profiles/{user_id}_thumb.jpg (optional, stored directly without DB reference)
     """
 
     def __init__(self, config) -> None:
@@ -107,9 +107,8 @@ class StorageDynamoDB:
                     CREATE TABLE IF NOT EXISTS users (
                         id INT AUTO_INCREMENT PRIMARY KEY,
                         username VARCHAR(255) NOT NULL UNIQUE,
+                        email VARCHAR(255) NOT NULL,
                         password_hash VARCHAR(255) NOT NULL,
-                        profile_pic_key VARCHAR(255) NULL,
-                        profile_pic_thumb_key VARCHAR(255) NULL,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
                     """
@@ -177,7 +176,7 @@ class StorageDynamoDB:
         with self.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT id, username, password_hash, profile_pic_key, profile_pic_thumb_key FROM users WHERE username=%s",
+                    "SELECT id, username, email, password_hash, created_at FROM users WHERE username=%s",
                     (username,),
                 )
                 return cur.fetchone()
@@ -186,7 +185,7 @@ class StorageDynamoDB:
         with self.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT id, username, profile_pic_key, profile_pic_thumb_key FROM users WHERE id=%s",
+                    "SELECT id, username, email, created_at FROM users WHERE id=%s",
                     (user_id,),
                 )
                 return cur.fetchone()
@@ -200,11 +199,10 @@ class StorageDynamoDB:
         return {
             'id': user['id'],
             'username': user['username'],
-            'profile_pic_id': user.get('profile_pic_key'),
-            'profile_pic_thumb_id': user.get('profile_pic_thumb_key'),
         }
 
     def save_profile_picture(self, user_id: int, image: Image.Image) -> Dict[str, Any]:
+        """Save profile picture to S3 (no database column needed)."""
         thumb_bytes = self._resize_to_bytes(image, 200)
         full_bytes = self._resize_to_bytes(image, 800)
         
@@ -214,21 +212,11 @@ class StorageDynamoDB:
         self.s3.put_object(Bucket=self.bucket_name, Key=thumb_key, Body=thumb_bytes, ContentType='image/jpeg')
         self.s3.put_object(Bucket=self.bucket_name, Key=full_key, Body=full_bytes, ContentType='image/jpeg')
         
-        with self.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE users SET profile_pic_key=%s, profile_pic_thumb_key=%s WHERE id=%s",
-                    (full_key, thumb_key, user_id),
-                )
         return {'full': full_key, 'thumb': thumb_key}
 
     def get_profile_picture(self, user_id: int, variant: str) -> Optional[bytes]:
-        user = self.get_user_by_id(user_id)
-        if not user:
-            return None
-        key = user.get('profile_pic_thumb_key') if variant == 'thumb' else user.get('profile_pic_key')
-        if not key:
-            return None
+        """Get profile picture from S3 (attempts to fetch, returns None if not found)."""
+        key = f"profiles/{user_id}_{'thumb' if variant == 'thumb' else 'full'}.jpg"
         try:
             response = self.s3.get_object(Bucket=self.bucket_name, Key=key)
             return response['Body'].read()
