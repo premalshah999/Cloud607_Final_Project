@@ -1,8 +1,8 @@
 # Lumina Photo Gallery 📸
 
-A social photo-sharing app built with Flask, MySQL, and AWS services.
+A cloud-native social photo-sharing application built with Flask and deployed on AWS.
 
-**Course:** Cloud607 Final Project
+**Course:** DATA/MSML 650 - Cloud Computing Final Project
 
 ---
 
@@ -11,9 +11,9 @@ A social photo-sharing app built with Flask, MySQL, and AWS services.
 - 📷 Upload and share photos with captions
 - ❤️ Like photos from friends
 - 💬 Comment on photos
-- 👥 Add friends and chat with them
-- 🔍 Search photos by topic or username
-- 🖼️ Beautiful masonry-style gallery
+- 👥 Add friends and send direct messages
+- 🔍 Browse photos by scope (Home/Profile/All)
+- 🖼️ Beautiful responsive gallery layout
 
 ---
 
@@ -21,47 +21,18 @@ A social photo-sharing app built with Flask, MySQL, and AWS services.
 
 | Layer | Technology |
 |-------|------------|
-| Frontend | HTML, TailwindCSS, JavaScript |
-| Backend | Python Flask |
-| Database | MySQL (users), DynamoDB (photos) |
-| Storage | AWS S3 (images) |
-| Deployment | Docker (local), AWS EC2 (cloud) |
+| Frontend | HTML5, TailwindCSS, Vanilla JavaScript |
+| Backend | Python 3.11, Flask 3.x, Gunicorn |
+| Database | AWS RDS MySQL 8.0, AWS DynamoDB |
+| Storage | AWS S3 |
+| Compute | AWS EC2 (t2.micro) |
+| Region | us-east-2 (Ohio) |
 
 ---
 
-## Quick Start (Local - Docker)
+## Live Demo
 
-**Requirements:** Docker and Docker Compose installed
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/YOUR-USERNAME/Cloud607_Final_Project.git
-cd Cloud607_Final_Project
-
-# 2. Create environment file
-cp .env.example .env
-
-# 3. Start everything
-docker-compose up -d --build
-
-# 4. Open in browser
-open http://localhost:8080
-```
-
-**Useful commands:**
-```bash
-docker-compose logs -f web    # View logs
-docker-compose restart        # Restart services
-docker-compose down           # Stop everything
-```
-
----
-
-## Deploy to AWS
-
-See **[AWS_DEPLOYMENT.md](AWS_DEPLOYMENT.md)** for step-by-step instructions.
-
-**Summary:** Uses EC2 + RDS + DynamoDB + S3 (all AWS Free Tier eligible)
+**URL:** http://3.134.81.141:8080
 
 ---
 
@@ -69,17 +40,37 @@ See **[AWS_DEPLOYMENT.md](AWS_DEPLOYMENT.md)** for step-by-step instructions.
 
 ```
 Cloud607_Final_Project/
-├── app.py              # Application entry point
-├── app.html            # Frontend (single-page app)
-├── lumina/             # Backend package
-│   ├── __init__.py     # App factory
-│   ├── config.py       # Configuration
-│   ├── routes.py       # API endpoints
-│   ├── storage.py      # MongoDB storage
-│   └── storage_dynamodb.py  # AWS DynamoDB storage
-├── docker-compose.yml  # Local deployment
-├── requirements.txt    # Python dependencies
-└── REPORT.md          # Project report
+├── app.py                  # Application entry point
+├── app.html                # Frontend (single-page application)
+├── requirements.txt        # Python dependencies
+├── lumina/                 # Backend package
+│   ├── __init__.py         # App factory
+│   ├── config.py           # Configuration
+│   ├── routes.py           # API endpoints (15+)
+│   └── storage_dynamodb.py # AWS storage layer (30+ methods)
+├── DEMO_PHOTOS/            # Sample photos for testing
+├── REPORT.md               # Project report
+└── ARCHITECTURE_DIAGRAMS.md # System architecture diagrams
+```
+
+---
+
+## AWS Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    AWS Cloud (us-east-2)                    │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │    EC2      │  │   RDS       │  │     DynamoDB        │  │
+│  │  Flask App  │──│  MySQL 8.0  │  │  - lumina_photos    │  │
+│  │  Gunicorn   │  │  (users)    │  │  - lumina_comments  │  │
+│  └──────┬──────┘  └─────────────┘  │  - lumina_messages  │  │
+│         │                          └─────────────────────┘  │
+│         │         ┌─────────────────────────────────────┐   │
+│         └────────▶│  S3: lumina-photos-cloud650         │   │
+│                   │  (image storage)                    │   │
+│                   └─────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -106,46 +97,51 @@ Cloud607_Final_Project/
 | POST | `/api/auth/logout` | Log out |
 | GET | `/api/auth/me` | Get current user |
 
-### Social
+### Friends & Messaging
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/friends` | List friends |
-| POST | `/api/friends/add` | Send friend request |
-| POST | `/api/friends/accept` | Accept request |
-| GET | `/api/messages/<friend>` | Get chat messages |
-| POST | `/api/messages/<friend>` | Send message |
+| POST | `/api/friends/request` | Send friend request |
+| GET | `/api/friends/requests` | View pending requests |
+| POST | `/api/friends/respond` | Accept/decline request |
+| GET | `/api/friends/list` | List all friends |
+| GET | `/api/messages` | Get messages with a friend |
+| POST | `/api/messages` | Send a message |
 
 ---
 
 ## Environment Variables
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `STORAGE_BACKEND` | `mongodb` or `dynamodb` | `dynamodb` |
-| `MYSQL_HOST` | MySQL server address | `localhost` |
-| `MYSQL_USER` | MySQL username | `root` |
-| `MYSQL_PASSWORD` | MySQL password | `password` |
-| `MYSQL_DB` | MySQL database name | `lumina_db` |
-| `MONGO_URI` | MongoDB connection | `mongodb://localhost:27017` |
-| `AWS_REGION` | AWS region | `us-east-1` |
-| `S3_BUCKET` | S3 bucket name | `lumina-photos` |
-| `DYNAMODB_TABLE` | DynamoDB table | `lumina` |
-| `SECRET_KEY` | Flask secret key | `random-string` |
+Create a `.env` file based on `.env.example`:
+
+| Variable | Description |
+|----------|-------------|
+| `STORAGE_BACKEND` | Set to `dynamodb` for AWS |
+| `AWS_REGION` | AWS region (us-east-2) |
+| `S3_BUCKET` | S3 bucket name |
+| `DYNAMODB_PHOTOS_TABLE` | Photos table name |
+| `DYNAMODB_COMMENTS_TABLE` | Comments table name |
+| `DYNAMODB_MESSAGES_TABLE` | Messages table name |
+| `DB_HOST` | RDS MySQL endpoint |
+| `DB_USER` | Database username |
+| `DB_PASSWORD` | Database password |
+| `DB_NAME` | Database name |
+| `SECRET_KEY` | Flask session secret |
 
 ---
 
-## Screenshots
+## Documentation
 
-*Add screenshots of your app here*
+- **[REPORT.md](REPORT.md)** - Project report with implementation details
+- **[ARCHITECTURE_DIAGRAMS.md](ARCHITECTURE_DIAGRAMS.md)** - System architecture diagrams (Mermaid)
 
 ---
 
-## Authors
+## Author
 
-- Your Name - Cloud607
+**Premal Shah** - DATA/MSML 650 Cloud Computing
 
 ---
 
 ## License
 
-This project is for educational purposes (Cloud607 Final Project).
+This project is for educational purposes (DATA/MSML 650 Final Project).
