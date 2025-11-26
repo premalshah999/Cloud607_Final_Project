@@ -22,42 +22,35 @@ This document contains comprehensive architecture diagrams for the Lumina photo-
 
 ```mermaid
 graph TB
-    subgraph "AWS Cloud - us-east-2"
-        subgraph "VPC"
-            subgraph "Public Subnet"
-                EC2[EC2 Instance<br/>t2.micro<br/>Amazon Linux 2023<br/>IP: 3.134.81.141:8080]
+    subgraph AWS_Cloud["AWS Cloud - us-east-2"]
+        subgraph VPC["VPC"]
+            subgraph Public_Subnet["Public Subnet"]
+                EC2["EC2 Instance t2.micro"]
             end
             
-            subgraph "Private Subnet"
-                RDS[(RDS MySQL 8.0<br/>db.t3.micro<br/>lumina-db)]
+            subgraph Private_Subnet["Private Subnet"]
+                RDS[("RDS MySQL 8.0")]
             end
         end
         
-        S3[S3 Bucket<br/>lumina-photos-cloud650<br/>Public Read Access]
+        S3["S3 Bucket lumina-photos-cloud650"]
         
-        DDB1[(DynamoDB<br/>lumina_photos<br/>PK + SK)]
-        DDB2[(DynamoDB<br/>lumina_comments<br/>PK + SK)]
-        DDB3[(DynamoDB<br/>lumina_messages<br/>PK + SK)]
+        DDB1[("DynamoDB lumina_photos")]
+        DDB2[("DynamoDB lumina_comments")]
+        DDB3[("DynamoDB lumina_messages")]
         
-        IAM[IAM Role<br/>EC2 Instance Profile<br/>S3 + DynamoDB Access]
+        IAM["IAM Role - EC2 Instance Profile"]
     end
     
-    Internet((Internet<br/>Users))
+    Internet(("Internet Users"))
     
-    Internet -->|HTTP :8080| EC2
+    Internet -->|HTTP 8080| EC2
     EC2 -->|SQL Queries| RDS
-    EC2 -->|Upload/Download| S3
-    EC2 -->|Read/Write| DDB1
-    EC2 -->|Read/Write| DDB2
-    EC2 -->|Read/Write| DDB3
+    EC2 -->|Upload Download| S3
+    EC2 -->|Read Write| DDB1
+    EC2 -->|Read Write| DDB2
+    EC2 -->|Read Write| DDB3
     IAM -.->|Credentials| EC2
-    
-    style EC2 fill:#ff9900,stroke:#232f3e,stroke-width:3px
-    style RDS fill:#527fff,stroke:#232f3e,stroke-width:2px
-    style S3 fill:#569a31,stroke:#232f3e,stroke-width:2px
-    style DDB1 fill:#3b48cc,stroke:#232f3e,stroke-width:2px
-    style DDB2 fill:#3b48cc,stroke:#232f3e,stroke-width:2px
-    style DDB3 fill:#3b48cc,stroke:#232f3e,stroke-width:2px
 ```
 
 **Key Components:**
@@ -73,37 +66,30 @@ graph TB
 
 ```mermaid
 graph LR
-    subgraph "Client Layer"
-        Browser[Web Browser<br/>HTML/CSS/JavaScript]
+    subgraph Client_Layer["Client Layer"]
+        Browser["Web Browser"]
     end
     
-    subgraph "Application Layer - EC2"
-        Gunicorn[Gunicorn WSGI<br/>2 Workers<br/>Port 8080]
-        Flask[Flask 3.x<br/>Application Factory]
-        Routes[Routes Module<br/>API Endpoints]
-        Storage[Storage Module<br/>Backend Abstraction]
+    subgraph Application_Layer["Application Layer - EC2"]
+        Gunicorn["Gunicorn WSGI"]
+        Flask["Flask 3.x"]
+        Routes["Routes Module"]
+        Storage["Storage Module"]
     end
     
-    subgraph "Data Layer"
-        MySQL[(MySQL<br/>Users + Friends)]
-        DynamoDB[(DynamoDB<br/>Photos + Comments<br/>+ Messages)]
-        S3[(S3<br/>Image Files)]
+    subgraph Data_Layer["Data Layer"]
+        MySQL[("MySQL Users + Friends")]
+        DynamoDB[("DynamoDB Photos + Comments + Messages")]
+        S3[("S3 Image Files")]
     end
     
-    Browser <-->|HTTP/JSON| Gunicorn
+    Browser <-->|HTTP JSON| Gunicorn
     Gunicorn <--> Flask
     Flask <--> Routes
     Routes <--> Storage
     Storage <-->|PyMySQL| MySQL
     Storage <-->|boto3| DynamoDB
     Storage <-->|boto3| S3
-    
-    style Browser fill:#61dafb,stroke:#333,stroke-width:2px
-    style Gunicorn fill:#499848,stroke:#333,stroke-width:2px
-    style Flask fill:#000,stroke:#fff,stroke-width:2px,color:#fff
-    style MySQL fill:#00758f,stroke:#333,stroke-width:2px
-    style DynamoDB fill:#3b48cc,stroke:#333,stroke-width:2px
-    style S3 fill:#569a31,stroke:#333,stroke-width:2px
 ```
 
 **Architecture Pattern**: Three-tier architecture with clear separation of concerns
@@ -117,37 +103,37 @@ graph LR
 
 ```mermaid
 graph TB
-    subgraph "Flask Application"
-        App[app.py<br/>Application Factory]
-        Config[config.py<br/>Environment Config]
+    subgraph Flask_App["Flask Application"]
+        App["app.py"]
+        Config["config.py"]
         
-        subgraph "lumina Package"
-            Init[__init__.py<br/>Blueprint Registration]
-            Routes[routes.py<br/>API Endpoints]
-            StorageInterface[Storage Interface<br/>Abstract Methods]
+        subgraph Lumina_Package["lumina Package"]
+            Init["__init__.py"]
+            Routes["routes.py"]
+            StorageInterface["Storage Interface"]
             
-            subgraph "Storage Implementations"
-                DynamoDBStorage[storage_dynamodb.py<br/>AWS Backend]
+            subgraph Storage_Impl["Storage Implementations"]
+                DynamoDBStorage["storage_dynamodb.py"]
             end
         end
     end
     
-    subgraph "External Services"
-        MySQL[(MySQL<br/>Relational Data)]
-        DynamoDB[(DynamoDB<br/>Document Data)]
-        S3[(S3<br/>Binary Data)]
+    subgraph External["External Services"]
+        MySQL[("MySQL")]
+        DynamoDB[("DynamoDB")]
+        S3[("S3")]
     end
     
     App --> Config
     App --> Init
     Init --> Routes
-    Routes -->|Authentication| StorageInterface
-    Routes -->|Business Logic| StorageInterface
+    Routes --> StorageInterface
     StorageInterface --> DynamoDBStorage
     
-    DynamoDBStorage -->|User Management| MySQL
-    DynamoDBStorage -->|Photo Metadata| DynamoDB
-    DynamoDBStorage -->|Comments| DynamoDB
+    DynamoDBStorage --> MySQL
+    DynamoDBStorage --> DynamoDB
+    DynamoDBStorage --> S3
+```
     DynamoDBStorage -->|Messages| DynamoDB
     DynamoDBStorage -->|Image Upload| S3
     
@@ -168,28 +154,28 @@ graph TB
 
 ```mermaid
 graph TB
-    subgraph "Static HTML Pages"
-        Index[index.html<br/>Landing Page]
-        AppHTML[app.html<br/>Main Application]
+    subgraph Static_HTML["Static HTML Pages"]
+        Index["index.html Landing Page"]
+        AppHTML["app.html Main Application"]
     end
     
-    subgraph "JavaScript Modules - Embedded in app.html"
-        API[API Layer<br/>fetch() wrapper]
-        Auth[Authentication<br/>Session Management]
-        PhotoUI[Photo Management<br/>Upload/Display/Delete]
-        CommentUI[Comments UI<br/>Add/View Comments]
-        MessageUI[Messaging UI<br/>Real-time Chat]
-        FriendsUI[Friends UI<br/>Requests/List]
-        Gallery[Gallery Views<br/>Home/Profile/All]
+    subgraph JS_Modules["JavaScript Modules"]
+        API["API Layer"]
+        Auth["Authentication"]
+        PhotoUI["Photo Management"]
+        CommentUI["Comments UI"]
+        MessageUI["Messaging UI"]
+        FriendsUI["Friends UI"]
+        Gallery["Gallery Views"]
     end
     
-    subgraph "UI Components"
-        Modal[Modal Dialogs<br/>Upload/Comments/Messages]
-        Tabs[Tab Navigation<br/>Home/Profile/All/Friends/Chat]
-        Cards[Photo Cards<br/>Grid Layout]
+    subgraph UI_Components["UI Components"]
+        Modal["Modal Dialogs"]
+        Tabs["Tab Navigation"]
+        Cards["Photo Cards"]
     end
     
-    Index -->|Login/Signup| API
+    Index --> API
     AppHTML --> Auth
     AppHTML --> Gallery
     AppHTML --> Tabs
@@ -210,12 +196,7 @@ graph TB
     MessageUI --> Modal
     Gallery --> Cards
     
-    API -->|HTTP Requests| Backend[Flask Backend API]
-    
-    style AppHTML fill:#61dafb,stroke:#333,stroke-width:2px
-    style API fill:#ff6b6b,stroke:#333,stroke-width:2px
-    style Auth fill:#ffd93d,stroke:#333,stroke-width:2px
-    style Backend fill:#6bcf7f,stroke:#333,stroke-width:2px
+    API --> Backend["Flask Backend API"]
 ```
 
 **Frontend Features:**
@@ -450,40 +431,17 @@ sequenceDiagram
 
 ```mermaid
 stateDiagram-v2
-    [*] --> NoRelationship: Initial State
+    [*] --> NoRelationship
     
     NoRelationship --> PendingRequest: User A sends request
     PendingRequest --> Accepted: User B accepts
     PendingRequest --> Declined: User B declines
     PendingRequest --> NoRelationship: User A cancels
     
-    Declined --> NoRelationship: Auto-cleanup
+    Declined --> NoRelationship: Auto cleanup
     Accepted --> Friends: Mutual friendship
     
     Friends --> NoRelationship: Unfriend action
-    
-    state PendingRequest {
-        [*] --> Visible_To_Receiver
-        Visible_To_Receiver --> Notified
-    }
-    
-    state Accepted {
-        [*] --> Both_Can_See
-        Both_Can_See --> Chat_Enabled
-        Chat_Enabled --> View_Photos
-    }
-    
-    note right of NoRelationship
-        Users can search for
-        each other but no
-        special permissions
-    end note
-    
-    note right of Friends
-        - See each other's photos in "Home" feed
-        - Send direct messages
-        - View friend list
-    end note
 ```
 
 **Friend Request Process:**
@@ -498,45 +456,45 @@ stateDiagram-v2
 
 ```mermaid
 flowchart TD
-    Start([User Action]) --> Auth{Authenticated?}
+    Start(["User Action"]) --> Auth{"Authenticated?"}
     
-    Auth -->|No| LoginPage[Redirect to Login]
-    Auth -->|Yes| Action{Action Type?}
+    Auth -->|No| LoginPage["Redirect to Login"]
+    Auth -->|Yes| Action{"Action Type?"}
     
-    Action -->|Upload Photo| PhotoFlow[Photo Upload Flow]
-    Action -->|View Gallery| GalleryFlow[Gallery Flow]
-    Action -->|Send Message| MessageFlow[Message Flow]
-    Action -->|Comment| CommentFlow[Comment Flow]
+    Action -->|Upload Photo| PhotoFlow["Photo Upload Flow"]
+    Action -->|View Gallery| GalleryFlow["Gallery Flow"]
+    Action -->|Send Message| MessageFlow["Message Flow"]
+    Action -->|Comment| CommentFlow["Comment Flow"]
     
-    PhotoFlow --> ValidateFile{Valid File?}
-    ValidateFile -->|No| Error1[Return 400 Error]
-    ValidateFile -->|Yes| ProcessImage[Resize + Create Thumbnail]
-    ProcessImage --> UploadS3[Upload to S3]
-    UploadS3 --> SaveMetaDDB[Save Metadata to DynamoDB]
-    SaveMetaDDB --> Success1[Return 201 + Photo Data]
+    PhotoFlow --> ValidateFile{"Valid File?"}
+    ValidateFile -->|No| Error1["Return 400 Error"]
+    ValidateFile -->|Yes| ProcessImage["Resize + Create Thumbnail"]
+    ProcessImage --> UploadS3["Upload to S3"]
+    UploadS3 --> SaveMetaDDB["Save Metadata to DynamoDB"]
+    SaveMetaDDB --> Success1["Return 201 + Photo Data"]
     
-    GalleryFlow --> CheckScope{Scope?}
-    CheckScope -->|Home| GetFriends[Get Friend IDs from MySQL]
-    CheckScope -->|Profile| GetUserID[Get Current User ID]
-    CheckScope -->|All| AllUsers[All Photos]
-    GetFriends --> QueryPhotos[Query DynamoDB Photos]
+    GalleryFlow --> CheckScope{"Scope?"}
+    CheckScope -->|Home| GetFriends["Get Friend IDs from MySQL"]
+    CheckScope -->|Profile| GetUserID["Get Current User ID"]
+    CheckScope -->|All| AllUsers["All Photos"]
+    GetFriends --> QueryPhotos["Query DynamoDB Photos"]
     GetUserID --> QueryPhotos
     AllUsers --> QueryPhotos
-    QueryPhotos --> EnrichData[Add Username, Image URLs]
-    EnrichData --> Success2[Return 200 + Photos Array]
+    QueryPhotos --> EnrichData["Add Username and Image URLs"]
+    EnrichData --> Success2["Return 200 + Photos Array"]
     
-    MessageFlow --> ValidateUser{Friend Exists?}
-    ValidateUser -->|No| Error2[Return 404 Error]
-    ValidateUser -->|Yes| CreateConv[Create Conversation ID]
-    CreateConv --> SaveDDB[Save to DynamoDB Messages]
-    SaveDDB --> Success3[Return 201 + Message]
+    MessageFlow --> ValidateUser{"Friend Exists?"}
+    ValidateUser -->|No| Error2["Return 404 Error"]
+    ValidateUser -->|Yes| CreateConv["Create Conversation ID"]
+    CreateConv --> SaveDDB["Save to DynamoDB Messages"]
+    SaveDDB --> Success3["Return 201 + Message"]
     
-    CommentFlow --> PhotoExists{Photo Exists?}
-    PhotoExists -->|No| Error3[Return 404 Error]
-    PhotoExists -->|Yes| SaveComment[Save to DynamoDB Comments]
-    SaveComment --> Success4[Return 201 + Comment]
+    CommentFlow --> PhotoExists{"Photo Exists?"}
+    PhotoExists -->|No| Error3["Return 404 Error"]
+    PhotoExists -->|Yes| SaveComment["Save to DynamoDB Comments"]
+    SaveComment --> Success4["Return 201 + Comment"]
     
-    Success1 --> End([Response to Client])
+    Success1 --> End(["Response to Client"])
     Success2 --> End
     Success3 --> End
     Success4 --> End
@@ -544,11 +502,6 @@ flowchart TD
     Error2 --> End
     Error3 --> End
     LoginPage --> End
-    
-    style Start fill:#90EE90,stroke:#333,stroke-width:2px
-    style End fill:#FFB6C1,stroke:#333,stroke-width:2px
-    style Auth fill:#FFD700,stroke:#333,stroke-width:2px
-    style Action fill:#87CEEB,stroke:#333,stroke-width:2px
 ```
 
 ---
@@ -557,47 +510,45 @@ flowchart TD
 
 ```mermaid
 graph TB
-    Request[HTTP Request] --> Gunicorn[Gunicorn Worker]
-    Gunicorn --> Flask[Flask App]
-    Flask --> Route{Route Exists?}
+    Request["HTTP Request"] --> Gunicorn["Gunicorn Worker"]
+    Gunicorn --> Flask["Flask App"]
+    Flask --> Route{"Route Exists?"}
     
-    Route -->|No| NotFound[404 Not Found]
-    Route -->|Yes| AuthCheck{@login_required?}
+    Route -->|No| NotFound["404 Not Found"]
+    Route -->|Yes| AuthCheck{"login_required?"}
     
-    AuthCheck -->|Yes| Session{Valid Session?}
-    AuthCheck -->|No| Handler[Route Handler]
+    AuthCheck -->|Yes| Session{"Valid Session?"}
+    AuthCheck -->|No| Handler["Route Handler"]
     
-    Session -->|No| Unauthorized[401 Unauthorized]
+    Session -->|No| Unauthorized["401 Unauthorized"]
     Session -->|Yes| Handler
     
-    Handler --> Business[Business Logic]
-    Business --> Storage[Storage Layer]
+    Handler --> Business["Business Logic"]
+    Business --> Storage["Storage Layer"]
     
-    Storage --> DataSource{Data Source?}
+    Storage --> DataSource{"Data Source?"}
     
-    DataSource -->|Users/Friends| MySQL[(MySQL Query)]
-    DataSource -->|Photos/Comments| DynamoDB[(DynamoDB Query)]
-    DataSource -->|Images| S3[(S3 Get/Put)]
+    DataSource -->|Users and Friends| MySQL[("MySQL Query")]
+    DataSource -->|Photos and Comments| DynamoDB[("DynamoDB Query")]
+    DataSource -->|Images| S3[("S3 Get or Put")]
     
-    MySQL --> Process[Process Results]
+    MySQL --> Process["Process Results"]
     DynamoDB --> Process
     S3 --> Process
     
-    Process --> Response{Success?}
+    Process --> Response{"Success?"}
     
-    Response -->|Yes| Success[200/201 + JSON]
-    Response -->|No| Error[400/500 + Error Message]
+    Response -->|Yes| Success["200 or 201 + JSON"]
+    Response -->|No| Error["400 or 500 + Error"]
     
-    Success --> Return[HTTP Response]
+    Success --> Return["HTTP Response"]
     Error --> Return
     NotFound --> Return
     Unauthorized --> Return
     
     Return --> Gunicorn
-    Gunicorn --> Client[Client Browser]
-    
-    style Request fill:#61dafb,stroke:#333,stroke-width:2px
-    style Flask fill:#000,stroke:#fff,stroke-width:2px,color:#fff
+    Gunicorn --> Client["Client Browser"]
+```
     style MySQL fill:#00758f,stroke:#333,stroke-width:2px
     style DynamoDB fill:#3b48cc,stroke:#333,stroke-width:2px
     style S3 fill:#569a31,stroke:#333,stroke-width:2px
@@ -641,27 +592,27 @@ graph TB
 
 ```mermaid
 graph TB
-    subgraph "Development Environment"
-        DevMachine[Local MacBook]
-        Git[Git Repository<br/>GitHub]
+    subgraph Dev_Env["Development Environment"]
+        DevMachine["Local MacBook"]
+        Git["Git Repository GitHub"]
     end
     
-    subgraph "AWS Production Environment"
-        subgraph "EC2 Instance"
-            Python[Python 3.11<br/>Virtual Environment]
-            Gunicorn[Gunicorn WSGI<br/>2 Workers<br/>0.0.0.0:8080]
-            App[Flask Application]
-            Env[.env File<br/>Environment Variables]
+    subgraph AWS_Prod["AWS Production Environment"]
+        subgraph EC2_Instance["EC2 Instance"]
+            Python["Python 3.11 Virtual Env"]
+            Gunicorn["Gunicorn WSGI Server"]
+            App["Flask Application"]
+            Env["Environment Variables"]
         end
         
-        RDS[(RDS MySQL<br/>lumina-db)]
-        DDB[(DynamoDB Tables<br/>3 tables)]
-        S3[(S3 Bucket<br/>lumina-photos-cloud650)]
+        RDS[("RDS MySQL")]
+        DDB[("DynamoDB Tables")]
+        S3[("S3 Bucket")]
         
-        SecurityGroup[Security Group<br/>Port 8080 Open]
+        SecurityGroup["Security Group Port 8080"]
     end
     
-    Internet((Internet))
+    Internet(("Internet"))
     
     DevMachine -->|git push| Git
     Git -->|git pull| Python
@@ -674,13 +625,8 @@ graph TB
     App --> DDB
     App --> S3
     
-    Internet -->|HTTP :8080| SecurityGroup
+    Internet -->|HTTP 8080| SecurityGroup
     SecurityGroup --> Gunicorn
-    
-    style DevMachine fill:#61dafb,stroke:#333,stroke-width:2px
-    style EC2 Instance fill:#ff9900,stroke:#232f3e,stroke-width:3px
-    style App fill:#000,stroke:#fff,stroke-width:2px,color:#fff
-    style Gunicorn fill:#499848,stroke:#333,stroke-width:2px
 ```
 
 **Deployment Steps:**
