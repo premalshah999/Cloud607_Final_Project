@@ -134,13 +134,6 @@ graph TB
     DynamoDBStorage --> DynamoDB
     DynamoDBStorage --> S3
 ```
-    DynamoDBStorage -->|Messages| DynamoDB
-    DynamoDBStorage -->|Image Upload| S3
-    
-    style App fill:#000,stroke:#fff,stroke-width:2px,color:#fff
-    style Routes fill:#ff6b6b,stroke:#333,stroke-width:2px
-    style DynamoDBStorage fill:#4ecdc4,stroke:#333,stroke-width:2px
-```
 
 **Backend Modules:**
 - **app.py**: Entry point, Flask app factory
@@ -295,14 +288,14 @@ sequenceDiagram
     
     rect rgb(200, 220, 240)
         Note over User,MySQL: User Signup Flow
-        User->>Browser: Enter username + password
+        User->>Browser: Enter username and password
         Browser->>Flask: POST /api/auth/signup
-        Flask->>Flask: Hash password (werkzeug)
-        Flask->>Flask: Auto-generate email
+        Flask->>Flask: Hash password with werkzeug
+        Flask->>Flask: Auto generate email
         Flask->>MySQL: INSERT INTO users
-        MySQL-->>Flask: User created (id)
+        MySQL-->>Flask: User created with id
         Flask->>Flask: Create session
-        Flask-->>Browser: 201 Created + Set-Cookie
+        Flask-->>Browser: 201 Created with Set-Cookie
         Browser-->>User: Redirect to app
     end
     
@@ -314,18 +307,18 @@ sequenceDiagram
         MySQL-->>Flask: User data
         Flask->>Flask: Verify password hash
         Flask->>Flask: Create session
-        Flask-->>Browser: 200 OK + Set-Cookie
+        Flask-->>Browser: 200 OK with Set-Cookie
         Browser-->>User: Redirect to app
     end
     
     rect rgb(240, 220, 200)
         Note over User,MySQL: Authenticated Request
-        Browser->>Flask: GET /api/photos (with session cookie)
-        Flask->>Flask: @login_required decorator
+        Browser->>Flask: GET /api/photos with session cookie
+        Flask->>Flask: Check login_required decorator
         Flask->>Flask: Validate session
         Flask->>MySQL: Get user from session
         MySQL-->>Flask: User data
-        Flask-->>Browser: 200 OK + photos data
+        Flask-->>Browser: 200 OK with photos data
     end
 ```
 
@@ -347,29 +340,27 @@ sequenceDiagram
     participant S3
     participant DynamoDB
     
-    User->>Browser: Select photo + caption
-    Browser->>Browser: Validate file (type/size)
-    Browser->>Flask: POST /api/photos<br/>(multipart/form-data)
+    User->>Browser: Select photo and caption
+    Browser->>Browser: Validate file type and size
+    Browser->>Flask: POST /api/photos multipart form data
     
     Flask->>Flask: Generate UUID for photo
     Flask->>Flask: Validate file extension
     
-    par Upload to S3
-        Flask->>Flask: Resize image (Pillow)
-        Flask->>S3: Upload full image<br/>(photo_id_full.jpg)
-        S3-->>Flask: Upload successful
-        Flask->>Flask: Create thumbnail (200x200)
-        Flask->>S3: Upload thumbnail<br/>(photo_id_thumb.jpg)
-        S3-->>Flask: Upload successful
-    end
+    Flask->>Flask: Resize image with Pillow
+    Flask->>S3: Upload full image
+    S3-->>Flask: Upload successful
+    Flask->>Flask: Create thumbnail 200x200
+    Flask->>S3: Upload thumbnail
+    S3-->>Flask: Upload successful
     
-    Flask->>DynamoDB: Put main item<br/>PK=PHOTO#id, SK=META
+    Flask->>DynamoDB: Put main item PK PHOTO id SK META
     DynamoDB-->>Flask: Item created
     
-    Flask->>DynamoDB: Put user index<br/>PK=USER#id, SK=PHOTO#id
+    Flask->>DynamoDB: Put user index PK USER id SK PHOTO id
     DynamoDB-->>Flask: Index created
     
-    Flask-->>Browser: 201 Created + photo metadata
+    Flask-->>Browser: 201 Created with photo metadata
     Browser->>Browser: Update gallery UI
     Browser-->>User: Show new photo
 ```
@@ -393,17 +384,17 @@ sequenceDiagram
     participant Browser2
     participant User2
     
-    User1->>Browser1: Select friend + type message
-    Browser1->>Flask: GET /api/users/lookup?username=friend
+    User1->>Browser1: Select friend and type message
+    Browser1->>Flask: GET /api/users/lookup with username
     Flask-->>Browser1: Friend user_id
     
-    Browser1->>Flask: POST /api/messages<br/>{to_user_id, text}
+    Browser1->>Flask: POST /api/messages with to_user_id and text
     
-    Flask->>Flask: Create conversation_id<br/>CONV#user1#user2 (sorted)
-    Flask->>Flask: Generate message_id (UUID)
-    Flask->>Flask: Create sort key<br/>MSG#timestamp#id
+    Flask->>Flask: Create conversation_id CONV user1 user2 sorted
+    Flask->>Flask: Generate message_id UUID
+    Flask->>Flask: Create sort key MSG timestamp id
     
-    Flask->>DynamoDB: PutItem<br/>PK=CONV#user1#user2<br/>SK=MSG#timestamp#id
+    Flask->>DynamoDB: PutItem PK CONV user1 user2 SK MSG timestamp id
     DynamoDB-->>Flask: Message stored
     
     Flask-->>Browser1: 201 Created
@@ -411,10 +402,10 @@ sequenceDiagram
     
     rect rgb(230, 230, 250)
         Note over Browser2,User2: Polling for new messages
-        Browser2->>Flask: GET /api/messages?user_id=1<br/>(every 3 seconds)
-        Flask->>DynamoDB: Query PK=CONV#user1#user2<br/>SK begins_with MSG#
+        Browser2->>Flask: GET /api/messages every 3 seconds
+        Flask->>DynamoDB: Query PK CONV user1 user2 SK begins_with MSG
         DynamoDB-->>Flask: Messages list
-        Flask-->>Browser2: 200 OK + messages
+        Flask-->>Browser2: 200 OK with messages
         Browser2-->>User2: Display new message
     end
 ```
@@ -548,11 +539,6 @@ graph TB
     
     Return --> Gunicorn
     Gunicorn --> Client["Client Browser"]
-```
-    style MySQL fill:#00758f,stroke:#333,stroke-width:2px
-    style DynamoDB fill:#3b48cc,stroke:#333,stroke-width:2px
-    style S3 fill:#569a31,stroke:#333,stroke-width:2px
-    style Client fill:#90EE90,stroke:#333,stroke-width:2px
 ```
 
 **API Endpoints (15 total):**
